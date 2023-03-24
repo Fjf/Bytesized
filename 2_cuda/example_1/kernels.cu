@@ -22,31 +22,31 @@ __device__ bool equal(double *a, double *b, double err, struct dims dims) {
 }
 
 __global__ void kernel(const double *sources, double *output, const double *buffer, struct dims dims, double err) {
-    size_t x = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t y = blockIdx.y * blockDim.y + threadIdx.y;
+    for (size_t y = 0; y < dims.width; y++) {
+        for (size_t x = 0; x < dims.width; x++) {
+            /*
+             * Take the four direct neighbours and set current value to sum of
+             *
+             *        0.125
+             *  0.125 0.500 0.125
+             *        0.125
+             *
+             * Edges wrap around.
+             *
+             * The sources are an infinite (fixed) energy point, reset them to their initial values after.
+             */
+            output[y * dims.width + x] = (
+                    buffer[((y + 1) % dims.height) * dims.width + ((x + 0) % dims.width)] * 0.125 +
+                    buffer[((y - 1 + dims.width) % dims.height) * dims.width + ((x + 0) % dims.width)] * 0.125 +
+                    buffer[((y + 0) % dims.height) * dims.width + ((x + 1) % dims.width)] * 0.125 +
+                    buffer[((y + 0) % dims.height) * dims.width + ((x - 1 + dims.width) % dims.width)] * 0.125 +
+                    buffer[y * dims.width + x] * 0.5
+            );
 
-    /*
-     * Take the four direct neighbours and set current value to sum of
-     *
-     *        0.125
-     *  0.125 0.500 0.125
-     *        0.125
-     *
-     * Edges wrap around.
-     *
-     * The sources are an infinite (fixed) energy point, reset them to their initial values after.
-     */
-    output[y * dims.width + x] = (
-            buffer[((y + 1) % dims.height) * dims.width + ((x + 0) % dims.width)] * 0.125 +
-            buffer[((y - 1 + dims.width) % dims.height) * dims.width + ((x + 0) % dims.width)] * 0.125 +
-            buffer[((y + 0) % dims.height) * dims.width + ((x + 1) % dims.width)] * 0.125 +
-            buffer[((y + 0) % dims.height) * dims.width + ((x - 1 + dims.width) % dims.width)] * 0.125 +
-            buffer[y * dims.width + x] * 0.5
-    );
-
-    if (sources[y * dims.width + x] != 0)
-        output[y * dims.width + x] = sources[y * dims.width + x];
-
+            if (sources[y * dims.width + x] != 0)
+                output[y * dims.width + x] = sources[y * dims.width + x];
+        }
+    }
 }
 
 bool equal(std::vector<double> &a, std::vector<double> &b, double err) {
@@ -58,7 +58,8 @@ bool equal(std::vector<double> &a, std::vector<double> &b, double err) {
     return true;
 }
 
-std::vector<double> run_kernel(const std::vector<double> &sources, const struct dims dims, const size_t max_iters, const double err) {
+std::vector<double>
+run_kernel(const std::vector<double> &sources, const struct dims dims, const size_t max_iters, const double err) {
     // Initialize vector for our output array.
     std::vector<double> output(sources.size());
     std::vector<double> buffer(sources.size());
@@ -88,11 +89,7 @@ std::vector<double> run_kernel(const std::vector<double> &sources, const struct 
         /*
          * Launch our kernel
          */
-        uint block_size = 32;
-        dim3 block = {block_size, block_size};
-        dim3 grid = {uint(dims.width / block_size), uint(dims.height / block_size)};
-
-        kernel<<<grid, block>>>(dev_sources, dev_output, dev_buffer, dims, err);
+        kernel<<<1, 1>>>(dev_sources, dev_output, dev_buffer, dims, err);
         gpuErrchk(cudaDeviceSynchronize());
 
         cudaMemcpyAsync((void *) output.data(), (void *) dev_output, input_size, cudaMemcpyDeviceToHost);
@@ -102,7 +99,7 @@ std::vector<double> run_kernel(const std::vector<double> &sources, const struct 
         /*
          * Swap bufferss
          */
-        double* temp = dev_output;
+        double *temp = dev_output;
         dev_output = dev_buffer;
         dev_buffer = temp;
 
