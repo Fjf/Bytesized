@@ -4,6 +4,13 @@
 #include <chrono>
 #include "kernels.cuh"
 
+void print_matrix(std::vector<double> a, struct dims dims) {
+    for (size_t i = 0; i < a.size(); i++) {
+        if (i % dims.width == 0) std::cout << std::endl;
+        printf("%.2f ", a[i]);
+    }
+    printf("\n");
+}
 
 std::vector<double> dissipation(std::vector<double> &sources, struct dims dims, size_t max_iters, double err) {
     auto *output = new std::vector<double>(sources.size());
@@ -29,13 +36,15 @@ std::vector<double> dissipation(std::vector<double> &sources, struct dims dims, 
                 if (sources[y * dims.width + x] != 0) {
                     (*output)[y * dims.width + x] = sources[y * dims.width + x];
                 } else {
+                    uint ny = (y - 1 + dims.height) % dims.height;
+                    uint py = (y + 1 + dims.height) % dims.height;
+                    uint nx = (x - 1 + dims.width) % dims.width;
+                    uint px = (x + 1 + dims.width) % dims.width;
                     (*output)[y * dims.width + x] = (
-                            (*buffer)[((y + 1) % dims.height) * dims.width + ((x + 0) % dims.width)] * 0.125 +
-                            (*buffer)[((y - 1 + dims.width) % dims.height) * dims.width + ((x + 0) % dims.width)] *
-                            0.125 +
-                            (*buffer)[((y + 0) % dims.height) * dims.width + ((x + 1) % dims.width)] * 0.125 +
-                            (*buffer)[((y + 0) % dims.height) * dims.width + ((x - 1 + dims.width) % dims.width)] *
-                            0.125 +
+                            (*buffer)[ny * dims.width + x] * 0.125 +
+                            (*buffer)[py * dims.width + x] * 0.125 +
+                            (*buffer)[y * dims.width + nx] * 0.125 +
+                            (*buffer)[y * dims.width + px] * 0.125 +
                             (*buffer)[y * dims.width + x] * 0.5
                     );
                 }
@@ -93,9 +102,14 @@ std::vector<double> load_data(const char *filename) {
 
 int main(int argc, char **argv) {
     const char *filename = "../example_1/data/heat_points_4";
+    bool do_cpu = true;
     if (argc > 1) {
         filename = argv[1];
     }
+    if (argc > 2) {
+        do_cpu = false;
+    }
+
     /*
      * Initialize data
      */
@@ -105,22 +119,25 @@ int main(int argc, char **argv) {
     /*
      * Constants for computation
      */
-    const size_t max_iters = 10000;
-    const double err = 1e-4;
+    const size_t max_iters = 100000;
+    const double err = 1e-5;
 
     /*
      * Computing reference
      */
-
+    std::vector<double> reference;
     using nano = std::chrono::nanoseconds;
-    std::cout << "Computing reference on CPU." << std::endl;
 
-    auto ref_start = std::chrono::high_resolution_clock::now();
-    std::vector<double> reference = dissipation(sources, dims, max_iters, err);
-    auto ref_end = std::chrono::high_resolution_clock::now();
+    if (do_cpu) {
+        std::cout << "Computing reference on CPU." << std::endl;
 
-    std::cout << "Reference took " << double(std::chrono::duration_cast<nano>(ref_end - ref_start).count()) / 1.e6
-              << " ms\n";
+        auto ref_start = std::chrono::high_resolution_clock::now();
+        reference = dissipation(sources, dims, max_iters, err);
+        auto ref_end = std::chrono::high_resolution_clock::now();
+
+        std::cout << "Reference took " << double(std::chrono::duration_cast<nano>(ref_end - ref_start).count()) / 1.e6
+                  << " ms\n";
+    }
 
     /*
      * Run kernel
@@ -129,11 +146,17 @@ int main(int argc, char **argv) {
     std::vector<double> result = run_kernel(sources, dims, max_iters, err);
     auto kern_end = std::chrono::high_resolution_clock::now();
 
+//    print_matrix(sources, dims);
+//    print_matrix(result, dims);
+//    print_matrix(reference, dims);
+
     std::cout << "Kernel took " << double(std::chrono::duration_cast<nano>(kern_end - kern_start).count()) / 1.e6
               << " ms\n";
     /*
      * Validate and print result.
      */
-    std::cout << "Result: " << std::boolalpha << equal(reference, result, 1e4) << std::endl;
+    if (do_cpu) {
+        std::cout << "Result: " << std::boolalpha << equal(reference, result, err) << std::endl;
+    }
     return 0;
 }
