@@ -11,24 +11,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
     }
 }
 
-__device__
-int getGlobalIdx_2D_2D() {
-    int blockId = blockIdx.x + blockIdx.y * gridDim.x;
-    int threadId = blockId * (blockDim.x * blockDim.y)
-                   + (threadIdx.y * blockDim.x) + threadIdx.x;
-    return threadId;
-}
 
-__global__ void equal_kernel(double *a, double *b, struct dims dims, double err, bool *is_equal) {
-    size_t i = getGlobalIdx_2D_2D();
-    if (i >= dims.width * dims.height) return;
-
-    if (std::fabs(a[i] - b[i]) > err) {
-        *is_equal = false;
-    }
-}
-
-__global__ void kernel(const double *sources, double *output, const double *buffer, struct dims dims, double err) {
+__global__ void kernel(const double *sources, double *output, const double *buffer, struct dims dims, double err, bool* is_equal) {
     size_t x = blockIdx.x * blockDim.x + threadIdx.x;
     size_t y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -64,6 +48,9 @@ __global__ void kernel(const double *sources, double *output, const double *buff
         );
     }
 
+    if (std::fabs(buffer[y * dims.width + x] - output[y * dims.width + x]) > err) {
+        *is_equal = false;
+    }
 }
 
 bool equal(std::vector<double> &a, std::vector<double> &b, double err) {
@@ -116,12 +103,11 @@ run_kernel(const std::vector<double> &sources, const struct dims dims, const siz
                 uint((dims.width + block.x) / block.x),
                 uint((dims.height + block.y) / block.y)
         };
-        kernel<<<grid, block>>>(dev_sources, dev_output, dev_buffer, dims, err);
+        cudaMemset((void *) dev_is_equal, 1, 1);
+
+        kernel<<<grid, block>>>(dev_sources, dev_output, dev_buffer, dims, err, dev_is_equal);
         gpuErrchk(cudaDeviceSynchronize());
 
-        cudaMemset((void *) dev_is_equal, 1, 1);
-        equal_kernel<<<grid, block>>>(dev_output, dev_buffer, dims, err, dev_is_equal);
-        gpuErrchk(cudaDeviceSynchronize());
         cudaMemcpy((void *) &is_equal, (void *) dev_is_equal, sizeof(bool), cudaMemcpyDeviceToHost);
 
         /*
