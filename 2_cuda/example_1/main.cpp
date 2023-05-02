@@ -102,12 +102,12 @@ std::vector<double> load_data(const char *filename) {
 
 int main(int argc, char **argv) {
     const char *filename = "../example_1/data/heat_points_4";
-    bool do_cpu = true;
     if (argc > 1) {
         filename = argv[1];
     }
+    size_t max_iters = 100000;
     if (argc > 2) {
-        do_cpu = false;
+        max_iters = atoi(argv[2]);
     }
 
     /*
@@ -119,7 +119,6 @@ int main(int argc, char **argv) {
     /*
      * Constants for computation
      */
-    const size_t max_iters = 100000;
     const double err = 1e-5;
 
     /*
@@ -128,7 +127,7 @@ int main(int argc, char **argv) {
     std::vector<double> reference;
     using nano = std::chrono::nanoseconds;
 
-    if (do_cpu) {
+    if (max_iters <= 10000) {
         std::cout << "Computing reference on CPU." << std::endl;
 
         auto ref_start = std::chrono::high_resolution_clock::now();
@@ -146,17 +145,21 @@ int main(int argc, char **argv) {
     std::vector<double> result = run_kernel(sources, dims, max_iters, err);
     auto kern_end = std::chrono::high_resolution_clock::now();
 
-//    print_matrix(sources, dims);
-//    print_matrix(result, dims);
-//    print_matrix(reference, dims);
-
     std::cout << "Kernel took " << double(std::chrono::duration_cast<nano>(kern_end - kern_start).count()) / 1.e6
               << " ms\n";
     /*
      * Validate and print result.
      */
-    if (do_cpu) {
-        std::cout << "Result: " << std::boolalpha << equal(reference, result, err) << std::endl;
+    if (max_iters <= 10000) {
+        printf("\nSources:");
+        print_matrix(sources, dims);
+        printf("\nResult:");
+        print_matrix(result, dims);
+        printf("\nReference:");
+        print_matrix(reference, dims);
+
+        std::cout << "Result: " << std::boolalpha << equal(reference, result, err, true) << std::endl;
+
     }
     return 0;
 }

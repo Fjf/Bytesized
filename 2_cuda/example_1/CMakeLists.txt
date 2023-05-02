@@ -14,6 +14,7 @@ target_compile_options(
         -fPIC
         -shared
         -dc
+        -O3
         >)
 target_link_libraries(kernels CUDA::cudart_static)
 
